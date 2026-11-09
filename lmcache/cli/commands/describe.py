@@ -209,16 +209,18 @@ class KVCacheDescriber:
         else:
             self.metrics.add("l1_used_gb", "L1 used (GB)", None)
 
-        self.metrics.add(
-            "eviction_policy",
-            "Eviction policy",
-            safe_get(
-                self.data,
-                "storage_manager",
-                "eviction_controller",
-                "eviction_policy",
-            ),
+        # ``/status`` reports the L1 eviction controller as
+        # ``l1_eviction_controller``; older payloads used a bare
+        # ``eviction_controller``. Reading only the old path made a server
+        # running with ``--eviction-policy LRU`` describe itself as "N/A".
+        policy = safe_get(
+            self.data, "storage_manager", "l1_eviction_controller", "eviction_policy"
         )
+        if policy is None:
+            policy = safe_get(
+                self.data, "storage_manager", "eviction_controller", "eviction_policy"
+            )
+        self.metrics.add("eviction_policy", "Eviction policy", policy)
         self.metrics.add(
             "cached_objects",
             "Cached objects",

@@ -79,7 +79,7 @@ SAMPLE_STATUS = {
         },
         "store_controller": {"is_healthy": True},
         "prefetch_controller": {"is_healthy": True},
-        "eviction_controller": {
+        "l1_eviction_controller": {
             "is_healthy": True,
             "thread_alive": True,
             "eviction_policy": "LRU",
@@ -220,6 +220,69 @@ class TestDescribeKvcacheFields:
         assert kg["attention_backend"] == "vLLM non-MLA flash attention"
         assert kg["engine_kv_shape"] == "NL x [2, NB, BS, NH, HS]"
         assert kg["engine_kv_concrete_shape"] == "32 x [2, 2048, 16, 8, 128]"
+
+    def test_legacy_eviction_controller_path_still_works(self):
+        """Older payloads nested the policy under a bare ``eviction_controller``."""
+        # Standard
+        import copy
+        import io
+
+        # First Party
+        from lmcache.cli.commands.describe import DescribeCommand
+
+        legacy = copy.deepcopy(SAMPLE_STATUS)
+        storage = legacy["storage_manager"]
+        storage["eviction_controller"] = storage.pop("l1_eviction_controller")
+
+        cmd = DescribeCommand()
+
+        class FakeArgs:
+            target = "kvcache"
+            url = "http://localhost:8000"
+            format = "json"
+            output = None
+
+        with patch(
+            "lmcache.cli.commands.describe.fetch_json",
+            return_value=legacy,
+        ):
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                cmd.execute(FakeArgs())
+            output = json.loads(buf.getvalue())
+
+        assert output["metrics"]["eviction_policy"] == "LRU"
+
+    def test_missing_eviction_controller_reports_none(self):
+        """A payload with no eviction controller at all still reports null."""
+        # Standard
+        import copy
+        import io
+
+        # First Party
+        from lmcache.cli.commands.describe import DescribeCommand
+
+        payload = copy.deepcopy(SAMPLE_STATUS)
+        payload["storage_manager"].pop("l1_eviction_controller")
+
+        cmd = DescribeCommand()
+
+        class FakeArgs:
+            target = "kvcache"
+            url = "http://localhost:8000"
+            format = "json"
+            output = None
+
+        with patch(
+            "lmcache.cli.commands.describe.fetch_json",
+            return_value=payload,
+        ):
+            buf = io.StringIO()
+            with patch("sys.stdout", buf):
+                cmd.execute(FakeArgs())
+            output = json.loads(buf.getvalue())
+
+        assert output["metrics"]["eviction_policy"] is None
 
     def test_unhealthy(self):
         """Verify health shows UNHEALTHY when is_healthy is False."""
